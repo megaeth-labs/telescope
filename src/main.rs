@@ -119,8 +119,8 @@ impl Measurement {
     #[inline]
     fn print(&self) {
         print!(
-            "\rMini-blocks: {:.1}/s, TPS: {:.1}/s, Gas: {:.2}Mgas/s",
-            self.mini_block_rate(),
+            "\rMini-block interval: {:.1} ms, TPS: {:.1}, Gas: {:.2} Mgas/s",
+            1000.0 / self.mini_block_rate(),
             self.transactions_per_second(),
             self.gas_per_second() / 1_000_000.0
         );
