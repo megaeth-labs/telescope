@@ -1,0 +1,168 @@
+use std::io::{stdout, Write};
+
+use clap::Parser;
+
+use alloy::{
+    providers::{Provider, ProviderBuilder, WsConnect},
+    rpc::types::{Block, BlockTransactionsKind},
+};
+use eyre::Result;
+use futures_util::StreamExt;
+
+/// A utility to monitor the MegaETH performance.
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// The WebSocket endpoint to connect to the blockchain.
+    #[arg(short, long, default_value = "ws://localhost:8546")]
+    endpoint: String,
+
+    /// The window size (number of blocks) to measure the performance.
+    #[arg(short, long, default_value = "16")]
+    window: u64,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let args = Args::parse();
+    assert!(args.window > 1, "Window size must be greater than 1");
+
+    // Create the provider.
+    let ws = WsConnect::new(args.endpoint);
+    let provider = ProviderBuilder::new().on_ws(ws).await?;
+
+    // Subscribe to new blocks.
+    let sub = provider.subscribe_blocks().await?;
+    let mut stream = sub.into_stream();
+
+    // Create the measurement.
+    let mut measurement = Measurement::new(args.window);
+
+    while let Some(header) = stream.next().await {
+        let block = provider
+            .get_block_by_hash(header.hash, BlockTransactionsKind::Hashes)
+            .await
+            .expect("Failed to get block")
+            .expect("Block does not exist");
+        measurement.record(block);
+        measurement.print();
+    }
+
+    Ok(())
+}
+
+struct Measurement {
+    buffer: Vec<Datapoint>,
+    window_size: u64,
+}
+
+impl Measurement {
+    fn new(window_size: u64) -> Self {
+        Self {
+            buffer: Vec::with_capacity(window_size as usize),
+            window_size,
+        }
+    }
+
+    /// Get the size of the buffer.
+    #[inline]
+    #[allow(unused)]
+    fn buffer_len(&self) -> usize {
+        self.buffer.len()
+    }
+
+    /// Record a new block in the buffer.
+    #[inline]
+    fn record(&mut self, block: Block) {
+        if let Some(last) = self.buffer.last() {
+            if last.block.header.number >= block.header.number {
+                return;
+            }
+        }
+        self.buffer.push(Datapoint::new(block));
+        if self.buffer.len() > self.window_size as usize {
+            self.buffer.remove(0);
+        }
+    }
+
+    /// Calculate the transactions per second (TPS) using the data in the buffer.
+    #[inline]
+    fn transactions_per_second(&self) -> f64 {
+        let first_block = self.buffer.first().expect("Buffer is empty");
+        let last_block = self.buffer.last().expect("Buffer is empty");
+        let time_window = last_block.timestamp() - first_block.timestamp() + 1;
+        let n_txs = self.buffer.iter().map(|b| b.transactions()).sum::<usize>();
+        n_txs as f64 / time_window as f64
+    }
+
+    /// Calculate the gas per second (gas/s) using the data in the buffer.
+    #[inline]
+    fn gas_per_second(&self) -> f64 {
+        let first_block = self.buffer.first().expect("Buffer is empty");
+        let last_block = self.buffer.last().expect("Buffer is empty");
+        let time_window = last_block.timestamp() - first_block.timestamp() + 1;
+        let n_gas = self.buffer.iter().map(|b| b.gas_used()).sum::<u64>();
+        n_gas as f64 / time_window as f64
+    }
+
+    /// Calculate the mini-block rate (mini-blocks/s) using the data in the buffer.
+    #[inline]
+    fn mini_block_rate(&self) -> f64 {
+        let first_block = self.buffer.first().expect("Buffer is empty");
+        let last_block = self.buffer.last().expect("Buffer is empty");
+        let time_window = last_block.timestamp() - first_block.timestamp() + 1;
+        let n_mini_blocks = self.buffer.iter().map(|b| b.mini_blocks()).sum::<u64>();
+        n_mini_blocks as f64 / time_window as f64
+    }
+
+    /// Print the current measurements.
+    #[inline]
+    fn print(&self) {
+        print!(
+            "\rMini-blocks: {:.1}/s, TPS: {:.1}/s, Gas: {:.2}Mgas/s",
+            self.mini_block_rate(),
+            self.transactions_per_second(),
+            self.gas_per_second() / 1_000_000.0
+        );
+        stdout().flush().unwrap();
+    }
+}
+
+/// Contains the data we sample from the blockchain.
+struct Datapoint {
+    block: Block,
+}
+
+impl Datapoint {
+    fn new(block: Block) -> Self {
+        Self { block }
+    }
+
+    /// Get the gas used by the block.
+    #[inline]
+    fn gas_used(&self) -> u64 {
+        self.block.header.gas_used
+    }
+
+    /// Get the timestamp of the block.
+    #[inline]
+    fn timestamp(&self) -> u64 {
+        self.block.header.timestamp
+    }
+
+    /// Get the number of transactions in the block.
+    #[inline]
+    fn transactions(&self) -> usize {
+        self.block.transactions.len()
+    }
+
+    /// Calculate the number of mini-blocks in the block.
+    #[inline]
+    fn mini_blocks(&self) -> u64 {
+        let extra_data = self.block.header.extra_data.clone();
+        let mut padded = [0u8; 8];
+        let len = extra_data.len();
+        padded[8 - len..].copy_from_slice(&extra_data);
+        u64::from_be_bytes(padded)
+    }
+}

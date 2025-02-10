@@ -1,0 +1,15 @@
+[package]
+name = "megaeth-telescope"
+version = "0.1.0"
+edition = "2021"
+description = "An internal tool to monitor the MegaETH performance"
+
+[dependencies]
+alloy = { version = "0.11.0", features = ["full"] }
+clap = { version = "4.5.28", features = ["derive"] }
+crossbeam = "0.8.4"
+eyre = "0.6.12"
+futures = "0.3.31"
+futures-util = "0.3.31"
+rayon = "1.10.0"
+tokio = { version = "1.43.0", features = ["full"] }
