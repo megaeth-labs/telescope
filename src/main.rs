@@ -3,6 +3,7 @@ use std::io::{stdout, Write};
 use clap::Parser;
 
 use alloy::{
+    primitives::bytes::Buf,
     providers::{Provider, ProviderBuilder, WsConnect},
     rpc::types::{Block, BlockTransactionsKind},
 };
@@ -159,10 +160,8 @@ impl Datapoint {
     /// Calculate the number of mini-blocks in the block.
     #[inline]
     fn mini_blocks(&self) -> u64 {
-        let extra_data = self.block.header.extra_data.clone();
-        let mut padded = [0u8; 8];
-        let len = extra_data.len();
-        padded[8 - len..].copy_from_slice(&extra_data);
-        u64::from_be_bytes(padded)
+        let mut buf = self.block.header.extra_data.clone();
+        let fragment_count = buf.get_u8();
+        fragment_count as u64
     }
 }
