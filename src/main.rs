@@ -1,6 +1,6 @@
 use std::{
     io::{stdout, Write},
-    time::SystemTime,
+    time::Instant,
 };
 
 use chrono::Local;
@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
 }
 
 struct Measurement {
+    window_start: Instant,
     buffer: Vec<Datapoint>,
     window_size: u64,
 }
@@ -68,7 +69,8 @@ struct Measurement {
 impl Measurement {
     fn new(window_size: u64) -> Self {
         Self {
-            buffer: Vec::with_capacity(window_size as usize),
+            window_start: Instant::now(),
+            buffer: Vec::with_capacity(window_size as usize + 1),
             window_size,
         }
     }
@@ -90,38 +92,36 @@ impl Measurement {
         }
         self.buffer.push(Datapoint::new(block));
         if self.buffer.len() > self.window_size as usize {
-            self.buffer.remove(0);
+            let data_point = self.buffer.remove(0);
+            self.window_start = data_point.timestamp;
         }
     }
 
     /// Calculate the transactions per second (TPS) using the data in the buffer.
     #[inline]
     fn transactions_per_second(&self) -> f64 {
-        let first_block = self.buffer.first().expect("Buffer is empty");
         let last_block = self.buffer.last().expect("Buffer is empty");
-        let time_window = last_block.timestamp() - first_block.timestamp() + 1;
+        let time_window = last_block.timestamp - self.window_start;
         let n_txs = self.buffer.iter().map(|b| b.transactions()).sum::<usize>();
-        n_txs as f64 / time_window as f64
+        n_txs as f64 / time_window.as_secs_f64()
     }
 
     /// Calculate the gas per second (gas/s) using the data in the buffer.
     #[inline]
     fn gas_per_second(&self) -> f64 {
-        let first_block = self.buffer.first().expect("Buffer is empty");
         let last_block = self.buffer.last().expect("Buffer is empty");
-        let time_window = last_block.timestamp() - first_block.timestamp() + 1;
+        let time_window = last_block.timestamp - self.window_start;
         let n_gas = self.buffer.iter().map(|b| b.gas_used()).sum::<u64>();
-        n_gas as f64 / time_window as f64
+        n_gas as f64 / time_window.as_secs_f64()
     }
 
     /// Calculate the mini-block rate (mini-blocks/s) using the data in the buffer.
     #[inline]
     fn mini_block_rate(&self) -> f64 {
-        let first_block = self.buffer.first().expect("Buffer is empty");
         let last_block = self.buffer.last().expect("Buffer is empty");
-        let time_window = last_block.timestamp() - first_block.timestamp() + 1;
+        let time_window = last_block.timestamp - self.window_start;
         let n_mini_blocks = self.buffer.iter().map(|b| b.mini_blocks()).sum::<u64>();
-        n_mini_blocks as f64 / time_window as f64
+        n_mini_blocks as f64 / time_window.as_secs_f64()
     }
 
     /// Print the current measurements.
@@ -142,24 +142,22 @@ impl Measurement {
 
 /// Contains the data we sample from the blockchain.
 struct Datapoint {
+    timestamp: Instant,
     block: Block,
 }
 
 impl Datapoint {
     fn new(block: Block) -> Self {
-        Self { block }
+        Self {
+            timestamp: Instant::now(),
+            block,
+        }
     }
 
     /// Get the gas used by the block.
     #[inline]
     fn gas_used(&self) -> u64 {
         self.block.header.gas_used
-    }
-
-    /// Get the timestamp of the block.
-    #[inline]
-    fn timestamp(&self) -> u64 {
-        self.block.header.timestamp
     }
 
     /// Get the number of transactions in the block.
