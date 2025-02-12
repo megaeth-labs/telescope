@@ -130,7 +130,7 @@ impl Measurement {
         let now = Local::now();
         print!(
             "\r{} Mini-block interval: {:.1} ms, TPS: {:.1}, Gas: {:.2} Mgas/s {}",
-            now,
+            now.format("%Y-%m-%d %H:%M:%S%.6f"),
             1000.0 / self.mini_block_rate(),
             self.transactions_per_second(),
             self.gas_per_second() / 1_000_000.0,
