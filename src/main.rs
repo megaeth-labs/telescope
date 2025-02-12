@@ -1,5 +1,9 @@
-use std::io::{stdout, Write};
+use std::{
+    io::{stdout, Write},
+    time::SystemTime,
+};
 
+use chrono::Local;
 use clap::Parser;
 
 use alloy::{
@@ -21,6 +25,10 @@ struct Args {
     /// The window size (number of blocks) to measure the performance.
     #[arg(short, long, default_value = "16")]
     window: u64,
+
+    /// Refresh the printed metrics.
+    #[arg(short, long)]
+    refresh: bool,
 }
 
 #[tokio::main]
@@ -46,7 +54,7 @@ async fn main() -> Result<()> {
             .expect("Failed to get block")
             .expect("Block does not exist");
         measurement.record(block);
-        measurement.print();
+        measurement.print(args.refresh);
     }
 
     Ok(())
@@ -118,12 +126,15 @@ impl Measurement {
 
     /// Print the current measurements.
     #[inline]
-    fn print(&self) {
+    fn print(&self, refresh: bool) {
+        let now = Local::now();
         print!(
-            "\rMini-block interval: {:.1} ms, TPS: {:.1}, Gas: {:.2} Mgas/s",
+            "\r{} Mini-block interval: {:.1} ms, TPS: {:.1}, Gas: {:.2} Mgas/s {}",
+            now,
             1000.0 / self.mini_block_rate(),
             self.transactions_per_second(),
-            self.gas_per_second() / 1_000_000.0
+            self.gas_per_second() / 1_000_000.0,
+            if refresh { "" } else { "\n" }
         );
         stdout().flush().unwrap();
     }
